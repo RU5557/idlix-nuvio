@@ -1,12 +1,12 @@
-const axios = require('axios');
+const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 
 const IDLIX = {
   id: 'idlix',
   name: 'Idlix',
-  description: 'Stream Film & Series Indonesia HD',
+  description: 'Idlix - Film & Series Indonesia HD',
   version: '1.0.0',
-  author: 'Nuvio',
+  author: 'CloudX-Nuvio',
   supportedTypes: ['movie', 'tv'],
   filename: 'providers/idlix.js',
   enabled: true,
@@ -15,98 +15,124 @@ const IDLIX = {
   logo: 'https://z2.idlixku.com/favicon.png',
   contentLanguage: ['id', 'en'],
   mainUrl: 'https://z2.idlixku.com',
+  browser: null,
+
+  async getBrowser() {
+    if (!this.browser) {
+      try {
+        this.browser = await puppeteer.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+      } catch (e) {
+        console.error('Browser launch failed:', e.message);
+        throw e;
+      }
+    }
+    return this.browser;
+  },
 
   async search(query) {
     try {
-      const url = `${this.mainUrl}/?s=${encodeURIComponent(query)}`;
-      const { data } = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+      const browser = await this.getBrowser();
+      const page = await browser.newPage();
+      page.setDefaultTimeout(30000);
+      
+      await page.goto(`${this.mainUrl}/?s=${encodeURIComponent(query)}`, {
+        waitUntil: 'networkidle2'
       });
       
-      const $ = cheerio.load(data);
-      const results = [];
-      
-      $('[data-type="movie"], [data-type="tv"]').each((i, el) => {
-        const $el = $(el);
-        const title = $el.find('h3').text().trim();
-        const href = $el.find('a').attr('href');
-        const poster = $el.find('img').attr('src');
-        const type = $el.attr('data-type') || 'movie';
-        
-        if (title && href) {
-          results.push({
-            id: href,
-            title: title,
-            image: poster,
-            type: type
-          });
-        }
+      const results = await page.evaluate(() => {
+        const items = [];
+        document.querySelectorAll('[data-testid="movie-item"], .movie-card, [class*="movie"]').forEach(el => {
+          const title = el.querySelector('h2, h3, [class*="title"]')?.textContent?.trim();
+          const href = el.querySelector('a')?.href;
+          const poster = el.querySelector('img')?.src;
+          
+          if (title && href) {
+            items.push({
+              id: href,
+              title: title,
+              image: poster,
+              type: 'movie'
+            });
+          }
+        });
+        return items;
       });
       
+      await page.close();
       return results;
-    } catch (error) {
-      console.error('Idlix search error:', error);
+    } catch (e) {
+      console.error('Idlix search error:', e);
       return [];
     }
   },
 
   async getDetails(url) {
     try {
-      const { data } = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+      const browser = await this.getBrowser();
+      const page = await browser.newPage();
+      page.setDefaultTimeout(30000);
+      
+      await page.goto(url, { waitUntil: 'networkidle2' });
+      
+      const details = await page.evaluate(() => {
+        return {
+          title: document.querySelector('h1')?.textContent?.trim() || '',
+          description: document.querySelector('[class*="description"], [class*="synopsis"]')?.textContent?.trim() || '',
+          poster: document.querySelector('img[alt*="poster"], img[alt*="cover"]')?.src || '',
+          year: document.querySelector('[class*="year"]')?.textContent?.match(/\d{4}/)?.at(0) || null,
+          rating: document.querySelector('[class*="rating"]')?.textContent?.match(/[\d.]+/)?.at(0) || null,
+          genres: Array.from(document.querySelectorAll('[class*="genre"] a, [class*="category"] a')).map(el => el.textContent?.trim()).filter(Boolean),
+          actors: Array.from(document.querySelectorAll('[class*="actor"] a, [class*="cast"] a')).map(el => el.textContent?.trim()).filter(Boolean)
+        };
       });
       
-      const $ = cheerio.load(data);
-      
-      return {
-        title: $('h1').text().trim(),
-        description: $('[data-testid="description"]').text().trim(),
-        poster: $('[data-testid="poster"]').attr('src'),
-        year: parseInt($('[data-testid="year"]').text()),
-        rating: $('[data-testid="rating"]').text().trim(),
-        duration: $('[data-testid="duration"]').text().trim(),
-        genres: $('[data-testid="genres"] a').map((i, el) => $(el).text()).get(),
-        cast: $('[data-testid="cast"] a').map((i, el) => $(el).text()).get()
-      };
-    } catch (error) {
-      console.error('Idlix getDetails error:', error);
+      await page.close();
+      return details;
+    } catch (e) {
+      console.error('Idlix getDetails error:', e);
       return null;
     }
   },
 
   async getStreams(url) {
     try {
-      const { data } = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+      const browser = await this.getBrowser();
+      const page = await browser.newPage();
+      page.setDefaultTimeout(30000);
+      
+      await page.goto(url, { waitUntil: 'networkidle2' });
+      
+      const streams = await page.evaluate(() => {
+        const items = [];
+        document.querySelectorAll('[class*="server"], [class*="player"], iframe').forEach(el => {
+          const src = el.src || el.getAttribute('data-src');
+          const server = el.getAttribute('data-server') || el.className || 'unknown';
+          if (src && !src.includes('about:blank')) {
+            items.push({
+              server: server,
+              url: src,
+              quality: 'HD'
+            });
+          }
+        });
+        return items;
       });
       
-      const $ = cheerio.load(data);
-      const streams = [];
-      
-      $('[data-server]').each((i, el) => {
-        const $el = $(el);
-        const server = $el.attr('data-server');
-        const embedUrl = $el.attr('data-embed');
-        
-        if (embedUrl) {
-          streams.push({
-            server: server,
-            url: embedUrl,
-            quality: 'HD'
-          });
-        }
-      });
-      
+      await page.close();
       return streams;
-    } catch (error) {
-      console.error('Idlix getStreams error:', error);
+    } catch (e) {
+      console.error('Idlix getStreams error:', e);
       return [];
+    }
+  },
+
+  async closeBrowser() {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
     }
   }
 };
