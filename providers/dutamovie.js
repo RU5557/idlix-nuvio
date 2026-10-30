@@ -12,9 +12,9 @@ const DUTAMOVIE = {
   enabled: true,
   hasSettings: false,
   formats: ['mp4', 'mkv', 'm3u8'],
-  logo: 'https://offshorebankservices.com/favicon.ico',
+  logo: 'https://itoshii-movie.com/favicon.ico',
   contentLanguage: ['id'],
-  mainUrl: 'https://offshorebankservices.com',
+  mainUrl: 'https://itoshii-movie.com',
   mainUrlJson: 'https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/Website.json',
   directUrl: null,
 
@@ -22,7 +22,7 @@ const DUTAMOVIE = {
     if (this.directUrl) return;
     try {
       const { data } = await axios.get(this.mainUrlJson);
-      const json = JSON.parse(data);
+      const json = typeof data === 'string' ? JSON.parse(data) : data;
       const arr = json.dutamovie;
       if (arr && arr.length > 0 && arr[0]) {
         const newUrl = arr[0].replace(/\/$/, '');
